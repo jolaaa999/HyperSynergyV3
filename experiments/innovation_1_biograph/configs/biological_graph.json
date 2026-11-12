@@ -1,0 +1,25 @@
+{
+  "cell_encoder": {
+    "type": "biological_graph",
+    "num_layers": 2,
+    "hidden_dim": 128,
+    "gene_embedding_dim": 16,
+    "dropout": 0.1,
+    "pooling": "attention",
+    "residual": true,
+    "batch_chunk_size": 32
+  },
+  "biological_graph": {
+    "feature_path": "data/sample_features/cell_feature_900.p",
+    "codes_path": "data/sample_features/codes_cell.p",
+    "gene_index_path": "experiments/innovation_1_biograph/configs/gene_index.csv",
+    "expression_reference_path": "gene_expression_example.csv",
+    "edge_path": "data/biological_graph/ppi_edges.csv",
+    "source_manifest_path": "data/biological_graph/ppi_source.json",
+    "gene_id_namespace": "ncbi_entrez",
+    "directed": false,
+    "add_self_loops": true,
+    "normalize_expression": true,
+    "dynamic_edge_gate": false
+  }
+}

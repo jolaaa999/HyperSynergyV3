@@ -150,3 +150,33 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# V3 generated files and machine-local assets
+.idea/
+.vscode/
+*.lock
+*.pid
+*.pt
+*.pth
+*.model
+*.ckpt
+*.tar.gz
+*.zip
+*.bundle
+*.pem
+*.key
+.env.*
+/pretrain_representation_model/
+/saved_model/
+/runs/
+/backup_checkpoint_*/
+/cell_few_shot_*.csv
+/*.pdf
+/data/biograph_transfer/
+/experiments/innovation_1_biograph/checkpoints/
+/experiments/innovation_1_biograph/logs/
+/experiments/innovation_1_biograph/runs/
+/experiments/innovation_1_biograph/integration_validation_*/
+/experiments/innovation_1_biograph/transfer_audit_*/
+/experiments/innovation_1_biograph/results/*
+!/experiments/innovation_1_biograph/results/before_source_sha256.json

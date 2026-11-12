@@ -1,0 +1,612 @@
+HyperSynergyV3 环境迁移说明（UTF-8）
+====================================
+
+用途：复建当前 V3 实际使用的运行环境，并记录迁移后的验证方式。
+这是一份包含说明和多个可提取区块的 TXT，不能直接对整份文件执行 pip install -r。
+环境版本来自当前 hyper 环境实测；项目 README 和旧 hyper-setup/constraints.txt
+仍包含 PyG 1.6.1，不能用它们覆盖本文的 V3 实测版本 1.7.2。
+本次只导出和验证环境，没有安装/升级依赖、修改训练代码或启动训练。
+
+一、实际平台与核心版本
+----------------------
+项目路径：/data/jyk/HyperSynergyV3
+Conda 环境：hyper
+Python 路径：/data/jyk/miniconda3/envs/hyper/bin/python
+系统：Ubuntu 22.04.5 LTS；Linux x86_64；glibc 2.35。
+本清单的 Conda 构建及本地 CUDA wheel 面向 Linux x86_64，不能直接用于 Windows/macOS/ARM。
+
+Python                 3.6.15
+PyTorch                1.7.0+cu110
+PyTorch CUDA 构建       11.0
+Conda cudatoolkit       11.0.3，build h7761cd4_13
+cuDNN                  8004（8.0.4，torch.backends.cudnn.version()）
+torch-geometric        1.7.2
+ torch-scatter         2.0.5
+ torch-sparse          0.6.8
+ torch-cluster         1.5.8
+ torch-spline-conv      1.2.0
+RDKit                  2019.09.3，Conda build py36he9dd633_1
+boost-cpp              1.72.0，build h8e57a91_0
+NumPy                  1.19.5
+pandas                 1.1.5
+SciPy                  1.5.4
+scikit-learn           0.24.2
+opencv-python          4.5.5.64（cv2.__version__ 显示 4.5.5）
+tensorboardX           2.2
+protobuf               3.19.6
+pytorchtools           0.0.2
+pip / setuptools       21.3.1 / 58.0.4
+wheel                  0.37.1
+
+Conda 导出含 88 个精确包 URL（含构建和 MD5）；另有 43 个 pip 管理包。
+Python/CUDA/PyTorch/PyG 版本应作为一套复建；本文未验证替换为新版后的兼容性。
+Conda 显式清单保留了 RDKit/Boost/ICU 等配套构建，不要只按核心版本表重新求解依赖。
+
+二、GPU 证据与验证范围
+----------------------
+V3 2026-11-02 的集成验证记录使用 NVIDIA GeForce RTX 4090，CUDA available=true。
+证据：experiments/innovation_1_biograph/integration_validation_20261102_180408/results/environment.json。
+旧环境报告（/data/jyk/hyper-setup/REPORT.md，2026-10-22）记录驱动 595.99.02；
+这只是历史记录，不是当前驱动实测值，也不是迁移的最低驱动要求。
+当前会话执行 nvidia-smi 无法与驱动通信，因此本次没有重新验证 GPU 运算或实测当前驱动版本。
+不能据此判断宿主机 GPU 损坏。迁移目标机需要单独验证 GPU/驱动与本套软件的组合。
+未在当前 PATH 找到 nvcc；本文不把未检测到的系统 CUDA Toolkit 当成已安装项目。
+
+当前已完成的检查：
+- pip check：No broken requirements found。
+- 18 个关键依赖/项目模块导入通过。
+- TransformerConv、GraphNorm、GATv2Conv、GlobalAttention 导入通过。
+- V3 实际 BioGraph candidate 配置通过 run_stage.py --stage 1 --check-only；未启动训练。
+- 图 fingerprint：9ae6326affc8922a47c62e7a9c9a209c5daea73c504ff9a6d2a2445b813576c3。
+没有在新服务器实际安装或跑完整训练，以下安装步骤需在目标机执行并验证。
+
+三、迁移时需要带走哪些内容
+--------------------------
+1. 项目压缩包 /data/jyk/HyperSynergyV3.tar.gz。
+2. 本文件 /data/jyk/HyperSynergyV3_environment.txt；它在压缩完成后生成，不在旧压缩包里。
+3. 额外复制 /data/jyk/hyper-setup/wheels/ 到目标机，例如 /迁移目录/v3-wheels/。
+   该目录不在 V3 项目内，所以未被项目压缩包包含。
+   其中四个 torch_* 的 cp36-cp36m-linux_x86_64 wheel 是当前 CUDA 扩展对应缓存。
+   不要安装缓存中的 torch_geometric-1.6.1.tar.gz；V3 当前使用 1.7.2。
+   缓存并非完整离线环境；缺少完整 PyTorch wheel 及其他依赖，下面方案仍需要联网下载。
+
+四、从本 TXT 提取可安装清单与激活脚本
+------------------------------------
+在本 TXT 所在目录运行以下命令（使用系统 Python 3 或 Conda base 的 Python 3）：
+
+python3 - <<'PY'
+from pathlib import Path
+text = Path('HyperSynergyV3_environment.txt').read_text(encoding='utf-8')
+blocks = {
+    'CONDA_EXPLICIT': 'conda-explicit-v3.txt',
+    'PIP_ONLY': 'pip-only-v3.txt',
+    'CUDA_ACTIVATE': 'hyper-cuda-activate.sh',
+    'CUDA_DEACTIVATE': 'hyper-cuda-deactivate.sh',
+    'CONDA_PINNED': 'conda-pinned-v3.txt',
+}
+lines = text.splitlines()
+for name, filename in blocks.items():
+    begin = lines.index('# BEGIN ' + name)
+    end = lines.index('# END ' + name, begin + 1)
+    Path(filename).write_text('\n'.join(lines[begin+1:end]) + '\n', encoding='utf-8')
+    print('Wrote', filename)
+PY
+
+说明：执行上面代码时，write_text 内应为 Python 换行转义 '\n'。
+
+五、目标机重建顺序（联网方案）
+------------------------------
+前提：目标机使用 Linux x86_64，已安装并初始化 Conda；在上述提取文件所在目录执行。
+环境名 hyper_v3 用于新建，不覆盖已有 hyper 环境。
+
+conda create -n hyper_v3 --file conda-explicit-v3.txt
+conda activate hyper_v3
+python --version
+
+先恢复环境专用 CUDA 动态库搜索路径与版本固定文件：
+
+mkdir -p "$CONDA_PREFIX/etc/conda/activate.d" "$CONDA_PREFIX/etc/conda/deactivate.d"
+cp hyper-cuda-activate.sh "$CONDA_PREFIX/etc/conda/activate.d/hyper-cuda.sh"
+cp hyper-cuda-deactivate.sh "$CONDA_PREFIX/etc/conda/deactivate.d/hyper-cuda.sh"
+cp conda-pinned-v3.txt "$CONDA_PREFIX/conda-meta/pinned"
+conda deactivate
+conda activate hyper_v3
+
+再安装 PyTorch CUDA 11.0 版本：
+
+python -m pip install --no-deps 'torch==1.7.0+cu110' -f https://download.pytorch.org/whl/torch_stable.html
+
+安装从源机器复制过来的四个 PyG CUDA wheel（替换下面的实际路径）：
+
+WHEELS=/迁移目录/v3-wheels
+python -m pip install --no-deps --no-index --only-binary=:all: --find-links "$WHEELS" 'torch-scatter==2.0.5' 'torch-sparse==0.6.8' 'torch-cluster==1.5.8' 'torch-spline-conv==1.2.0'
+
+最后安装 pip 完整分组；已安装的同版本 torch/CUDA 扩展保持满足要求：
+
+python -m pip install --no-deps --find-links "$WHEELS" -r pip-only-v3.txt
+python -m pip check
+
+这里 --no-deps 配合“完整 Conda 清单 + 完整 pip 分组”使用，不是省略依赖。
+安装后必须以 pip check 和算子验证确认，没有通过不能开始正式训练。
+本文未联网测试旧包下载链接当前是否可用；若下载失败，保留指定版本并取得对应原包。
+如 pytorchtools==0.0.2 的索引解析失败，可使用本文附录记录的实际安装来源 URL。
+不要将最后的原始 pip freeze 区块直接用于重建：它含源机器 wheel 路径及 Conda 构建路径。
+PIP_ONLY 区块已按当前安装元数据写成 name==version，避免把这些机器路径带进安装命令。
+
+六、V3 运行配置及路径迁移
+------------------------
+V3 BioGraph 的入口是 experiments/innovation_1_biograph/run_stage.py。
+根目录 run_v2_training.sh 是保留的 V2 启动器，且 Python 路径写死为原机器路径。
+BioGraph 应使用上面的 V3 分阶段入口，并保留其中禁用 GPU JIT fusion 的三行：
+
+    torch._C._jit_override_can_fuse_on_gpu(False)
+    torch._C._jit_set_texpr_fuser_enabled(False)
+    torch._C._jit_set_nvfuser_enabled(False)
+
+这三行已存在于 V3 run_stage.py，直接使用入口会自动应用。
+代码中有显式 .cuda()；完整元训练/测试需要 CUDA，CPU 导入通过不等于可以 CPU 完整训练。
+环境激活钩子将本环境 lib 加入 LD_LIBRARY_PATH，用于解析 libcusparse.so.11 等 CUDA 库。
+不要把 NVIDIA 驱动显示的 CUDA 数字当作此 Python 环境实际使用的 CUDA 版本。
+
+推荐运行变量：
+
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONUNBUFFERED=1
+export CUDA_VISIBLE_DEVICES=0
+
+GPU 编号 0 是示例，请选择目标机器可用 GPU。
+HYPERSYNERGY_ENCODER_CONFIG / HYPERSYNERGY_RUN_DIR / HYPERSYNERGY_TEST_CHECKPOINT
+由 run_stage.py 自动设置；新训练使用新的 run 目录。
+
+已经实际使用且本次预检通过的配置：
+experiments/innovation_1_biograph/transfer_audit_20261102/results/staged/biological_graph.candidate.json
+
+对应正式运行记录：
+experiments/innovation_1_biograph/runs/formal_biograph_stage2_restart_20261105_145123/RUN_RECORD.json
+该 RUN_RECORD 明确使用 /data/jyk/miniconda3/envs/hyper/bin/python。
+
+实际 PPI/基因映射文件在：
+experiments/innovation_1_biograph/transfer_audit_20261102/results/staged/gene_index.csv
+experiments/innovation_1_biograph/transfer_audit_20261102/results/staged/ppi_edges_entrez.csv
+experiments/innovation_1_biograph/transfer_audit_20261102/results/staged/ppi_source.json
+
+注意：experiments/innovation_1_biograph/configs/biological_graph.json 仍指向
+目前不存在的 data/biological_graph/ppi_edges.csv；不能直接把它当作当前正式训练配置。
+迁移应使用已验证的 candidate 配置或相应 run/configs/encoder.json。
+这些配置里的 *_path 包含 /data/jyk/HyperSynergyV3 绝对路径。
+若目标项目目录不同，需要在迁移副本中把路径指向实际数据位置，并重新做 check-only。
+源项目含指向 /data/jyk/HyperSynergyV3 的绝对软链接；部分历史 runs 还指向
+/data/jyk/HyperSynergyV2 copy。tar 保留的是软链接本身，不能假设外部链接目标也已打包。
+迁移已有 run 时需核对 data/权重软链接；不要把所有历史 V2 权重链接盲目改指 V3 权重。
+加载旧 checkpoint 还要通过原严格加载器的配置/图/权重匹配检查。
+这些路径问题与 Python 包是否安装成功是两项独立检查。
+
+七、目标机验收命令（先验收，再训练）
+----------------------------------
+激活 hyper_v3 并设置项目实际位置，先做小型 GPU 算子检查：
+
+nvidia-smi
+python -m pip check
+python -B - <<'PY'
+import sys, torch, torch_geometric
+from torch_scatter import scatter_add
+from torch_geometric.nn import TransformerConv, GATv2Conv, GlobalAttention
+from torch_geometric.nn.norm import GraphNorm
+print('Python:', sys.version)
+print('Torch:', torch.__version__, 'CUDA:', torch.version.cuda)
+print('PyG:', torch_geometric.__version__)
+assert torch.__version__ == '1.7.0+cu110'
+assert torch_geometric.__version__ == '1.7.2'
+assert torch.cuda.is_available(), 'CUDA unavailable'
+torch._C._jit_override_can_fuse_on_gpu(False)
+torch._C._jit_set_texpr_fuser_enabled(False)
+torch._C._jit_set_nvfuser_enabled(False)
+print('GPU:', torch.cuda.get_device_name(0))
+x = torch.randn(4, 8, device='cuda', requires_grad=True)
+edge = torch.tensor([[0, 1, 2, 3], [1, 2, 3, 0]], dtype=torch.long, device='cuda')
+for cls in (TransformerConv, GATv2Conv):
+    layer = cls(8, 8).cuda()
+    y = layer(x, edge)
+    assert torch.isfinite(y).all().item()
+    y.sum().backward()
+z = scatter_add(torch.ones(4, device='cuda'), torch.tensor([0, 0, 1, 1], device='cuda'), dim=0)
+assert z.tolist() == [2.0, 2.0]
+torch.cuda.synchronize()
+print('PASS: CUDA / PyG forward and backward')
+PY
+
+然后验证实际 BioGraph 配置；PROJECT 应替换为目标路径，且先修正配置中的绝对路径：
+
+PROJECT=/目标路径/HyperSynergyV3
+cd "$PROJECT"
+EXP=experiments/innovation_1_biograph
+CFG="$EXP/transfer_audit_20261102/results/staged/biological_graph.candidate.json"
+python -B "$EXP/run_stage.py" --stage 1 --config "$CFG" --run-dir "$EXP/runs/migration_preflight" --check-only
+
+--check-only 只做预检，不启动训练；上述 GPU 小测试也不能替代真实训练验证。
+如需新开完整实验，可用一个不存在的新 run 目录依次执行原三阶段：
+
+RUN="$EXP/runs/migrated_biograph_new"
+python -B -u "$EXP/run_stage.py" --stage 1 --config "$CFG" --run-dir "$RUN"
+python -B -u "$EXP/run_stage.py" --stage 2 --config "$CFG" --run-dir "$RUN"
+
+Stage 3 还必须用 --checkpoint 指定该 RUN/checkpoints/stage2/ 中实际存在的 checkpoint。
+不要直接重跑已完成的训练目录；原入口有防覆盖检查。
+
+八、迁移边界
+------------
+本文记录的状态以采集时刻为准。完整清单和精确包构建见后文。
+系统动态库当前安装版本：libc6 2.35-0ubuntu3.15；libgl1 1.4.0-1；
+libglib2.0-0 2.72.4-0ubuntu2.10；libgomp1/libstdc++6 12.3.0-1ubuntu1~22.04.3。
+这些是源机实测信息，不表示其他系统组合已经验证。
+Python 环境、项目源码/数据/权重和 NVIDIA 驱动分别管理；项目压缩包不含完整 Conda 环境或驱动。
+只搬运本 TXT 不会自动提供依赖二进制文件。离线迁移需另行准备完整环境/安装包。
+
+九、当前环境原始导出
+====================
+
+HyperSynergyV3 环境迁移清单
+采集时间：2026-11-12T14:34:42.586260+08:00
+项目：/data/jyk/HyperSynergyV3
+环境：/data/jyk/miniconda3/envs/hyper
+
+实际运行环境：
+{
+  "python": "3.6.15 | packaged by conda-forge | (default, Dec  3 2021, 18:49:41) \n[GCC 9.4.0]",
+  "executable": "/data/jyk/miniconda3/envs/hyper/bin/python",
+  "torch": "1.7.0+cu110",
+  "torch_geometric": "1.7.2",
+  "cuda_build": "11.0",
+  "cudnn": 8004,
+  "rdkit": "2019.09.3"
+}
+
+系统：
+PRETTY_NAME="Ubuntu 22.04.5 LTS"
+NAME="Ubuntu"
+VERSION_ID="22.04"
+VERSION="22.04.5 LTS (Jammy Jellyfish)"
+VERSION_CODENAME=jammy
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=jammy
+
+x86_64
+ldd (Ubuntu GLIBC 2.35-0ubuntu3.15) 2.35
+
+依赖一致性检查：
+No broken requirements found.
+
+
+Conda 精确包清单（仅 Conda 管理的包）：
+# BEGIN CONDA_EXPLICIT
+# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+# platform: linux-64
+# created-by: conda 26.9.3
+@EXPLICIT
+https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.19-hbd8a1cb_0.conda#a1d1bf676059d2863f000d5e2777743f
+https://conda.anaconda.org/conda-forge/noarch/font-ttf-dejavu-sans-mono-2.37-hab24e00_0.tar.bz2#0c96522c6bdaed4b1566d11387caaf45
+https://conda.anaconda.org/conda-forge/noarch/font-ttf-inconsolata-3.000-h77eed37_0.tar.bz2#34893075a5c9e55cdafac56607368fc6
+https://conda.anaconda.org/conda-forge/noarch/font-ttf-source-code-pro-2.038-h77eed37_0.tar.bz2#4d59c254e01d9cde7957100457e2d5fb
+https://conda.anaconda.org/conda-forge/noarch/font-ttf-ubuntu-0.83-h77eed37_3.conda#49023d73832ef61042f6a237cb2687e7
+https://conda.anaconda.org/conda-forge/linux-64/ld_impl_linux-64-2.46.1-bootstrap_ha15bf96_3.conda#e82d33173910cc8da8da4e51d732ff3e
+https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_7.conda#d904c7ddd95e026254b4b80808ee9e12
+https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda#a9f577daf3de00bca7c3c76c0ecbd1de
+https://conda.anaconda.org/conda-forge/noarch/fonts-conda-forge-1-hc364b38_1.conda#a7970cd949a077b7cb9696379d338681
+https://conda.anaconda.org/conda-forge/noarch/fonts-conda-ecosystem-1-0.tar.bz2#fee5683a3f04bd15cbd8318b096a27ab
+https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_7.conda#735629b400b70eeab21a2ba8f5b1c2ce
+https://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-hda65f42_10.conda#e675fabcf81499adc7edf58124fb1e01
+https://conda.anaconda.org/conda-forge/linux-64/libdeflate-1.25-hd45a770_1.conda#40f9b31aa9cf007789867df0decd0492
+https://conda.anaconda.org/conda-forge/linux-64/libexpat-2.8.5-hd2095e1_0.conda#72cfd2b95b0540247220b42f58a148d7
+https://conda.anaconda.org/conda-forge/linux-64/libffi-3.4.6-h2dba641_1.conda#ede4673863426c0883c0063d853bbd85
+https://conda.anaconda.org/conda-forge/linux-64/libgcc-ng-16.2.0-h69a702a_7.conda#2005515ac9340f816fb2ac7e83afe553
+https://conda.anaconda.org/conda-forge/linux-64/libgfortran5-16.2.0-h6b99dfc_7.conda#7719ed7be38ad8c492c4bd5cc2bce0c4
+https://conda.anaconda.org/conda-forge/linux-64/libiconv-1.18-h0cb94f2_3.conda#f92233bf33e24a25668bb2119e2c51f9
+https://conda.anaconda.org/conda-forge/linux-64/liblzma-5.8.3-hb03c661_1.conda#1390b7c5ac0b1d8e447bc5efa6d3c8c2
+https://conda.anaconda.org/conda-forge/linux-64/libnsl-2.0.1-hb9d3cd8_1.conda#d864d34357c3b65a4b731f78c0801dc4
+https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-16.2.0-h934c35e_7.conda#9b6707e0caca917fa6ea9ee473f37a5d
+https://conda.anaconda.org/conda-forge/linux-64/libuuid-2.42.4-hcfc3c73_0.conda#54a948337e66706380ff24d6b5fde63f
+https://conda.anaconda.org/conda-forge/linux-64/libwebp-base-1.6.0-hd42ef1d_1.conda#9332b53d0ea93c5d39e33be03a0c611a
+https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.6-hdb14827_1.conda#ee6c0cd80a60961a1f48aa3e0b91f986
+https://conda.anaconda.org/conda-forge/linux-64/pthread-stubs-0.4-h7cc23a3_1004.conda#bb66b610707b811e3c65181a6431e7a8
+https://conda.anaconda.org/conda-forge/linux-64/xorg-kbproto-1.0.7-hb9d3cd8_1003.conda#e87bfacb110d85e1eb6099c9ed8e7236
+https://conda.anaconda.org/conda-forge/linux-64/xorg-libice-1.1.2-h280c20c_0.conda#85c9442aec283b4e464fa9ecc484a2f3
+https://conda.anaconda.org/conda-forge/linux-64/xorg-libxau-1.0.12-h7cc23a3_2.conda#da33efee1a93603d92e06d4a2b68def6
+https://conda.anaconda.org/conda-forge/linux-64/xorg-libxdmcp-1.1.5-h7cc23a3_2.conda#eabfc45786244de252090cf8d55128a8
+https://conda.anaconda.org/conda-forge/linux-64/xorg-renderproto-0.11.1-hb9d3cd8_1003.conda#bf90782559bce8447609933a7d45995a
+https://conda.anaconda.org/conda-forge/linux-64/xorg-xextproto-7.3.0-hb9d3cd8_1004.conda#bc4cd53a083b6720d61a1519a1900878
+https://conda.anaconda.org/conda-forge/linux-64/xorg-xproto-7.0.31-hb9d3cd8_1008.conda#a63f5b66876bb1ec734ab4bdc4d11e86
+https://conda.anaconda.org/conda-forge/linux-64/expat-2.8.5-hd2095e1_0.conda#30a967b6ac673c8f21b64604a2b9ccd6
+https://conda.anaconda.org/conda-forge/linux-64/jpeg-9e-h0b41bf4_3.conda#c7a069243e1fbe9a556ed2ec030e6407
+https://conda.anaconda.org/conda-forge/linux-64/libgfortran-16.2.0-h69a702a_7.conda#3a8d285f5f22138ef826ad54cf267e73
+https://conda.anaconda.org/conda-forge/linux-64/liblzma-devel-5.8.3-hb03c661_1.conda#6d83d6a332c19424e9e66b69b180ec11
+https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-ng-16.2.0-hdf11a46_7.conda#25a23bde5e26d548374f3e02b4669670
+https://conda.anaconda.org/conda-forge/linux-64/libxcb-1.13-h7f98852_1004.tar.bz2#b3653fdc58d03face9724f602218a904
+https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.2.13-h4ab18f5_6.conda#27329162c0dc732bcf67a4e0cd488125
+https://conda.anaconda.org/conda-forge/linux-64/openssl-1.1.1w-hd590300_0.conda#301e70057a3bd399640bb16bbdf87995
+https://conda.anaconda.org/conda-forge/linux-64/pixman-0.38.0-h516909a_1003.tar.bz2#7c0b1414e5af196415f7808fbd704143
+https://conda.anaconda.org/conda-forge/linux-64/readline-8.3-hd6e31c0_1.conda#69c01c781e7c8190bbdaf79e3848c5ca
+https://conda.anaconda.org/conda-forge/linux-64/xorg-libsm-1.2.6-h0d788c3_1.conda#aa7459ed9ad086ba11dda843d764b33d
+https://conda.anaconda.org/conda-forge/linux-64/xz-gpl-tools-5.8.3-ha02ee65_1.conda#137db930adb0b3c5407485e0e1a50cfa
+https://conda.anaconda.org/conda-forge/linux-64/xz-tools-5.8.3-hb03c661_1.conda#10d693a2db6e8339e4eebcb3a3dae88d
+https://conda.anaconda.org/conda-forge/linux-64/cudatoolkit-11.0.3-h7761cd4_13.conda#6157603a9dded3c08ed3f7570aa41842
+https://conda.anaconda.org/conda-forge/linux-64/icu-64.2-he1b5a44_1.tar.bz2#8e881214a23508f1541eb7a3135d6fcb
+https://conda.anaconda.org/conda-forge/linux-64/lerc-3.0-h9c3ff4c_0.tar.bz2#7fcefde484980d23f0ec24c11e314d2e
+https://conda.anaconda.org/conda-forge/linux-64/libopenblas-0.3.34-pthreads_hf13c14d_2.conda#7e19fcd73d7f0997d3cb3326d2586a86
+https://conda.anaconda.org/conda-forge/linux-64/libpng-1.6.43-h2797004_0.conda#009981dd9cfcaa4dbfa25ffaed86bcae
+https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.46.0-hde9e2c9_0.conda#18aa975d2094c34aef978060ae7da7d8
+https://conda.anaconda.org/conda-forge/linux-64/pcre2-10.43-hcad00b1_0.conda#8292dea9e022d9610a11fce5e0896ed8
+https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h4845f30_101.conda#d453b98d9c83e71da0741bb0ff4d76bc
+https://conda.anaconda.org/conda-forge/linux-64/xorg-libx11-1.8.4-h0b41bf4_0.conda#ea8fbfeb976ac49cbeb594e985393514
+https://conda.anaconda.org/conda-forge/linux-64/xz-5.8.3-ha02ee65_1.conda#36a079606b3aaf9d726211825f182452
+https://conda.anaconda.org/conda-forge/linux-64/zlib-1.2.13-h4ab18f5_6.conda#559d338a4234c2ad6e676f460a093e67
+https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.6-ha6fb4c9_0.conda#4d056880988120e29d75bfff282e0f45
+https://conda.anaconda.org/conda-forge/linux-64/boost-cpp-1.72.0-h8e57a91_0.tar.bz2#133a674da10caef4af883eaff85fd9a5
+https://conda.anaconda.org/conda-forge/linux-64/freetype-2.12.1-h267a509_2.conda#9ae35c3d96db2c94ce0cef86efdfa2cb
+https://conda.anaconda.org/conda-forge/linux-64/libblas-3.11.0-11_h4a7cf45_openblas.conda#b8cce1486f3c62f33291d6318c193d0d
+https://conda.anaconda.org/conda-forge/linux-64/libglib-2.80.2-hf974151_0.conda#72724f6a78ecb15559396966226d5838
+https://conda.anaconda.org/conda-forge/linux-64/libtiff-4.3.0-h0fcbabc_4.tar.bz2#2cdb3944029c2cb99cbe981b182a2e9a
+https://conda.anaconda.org/conda-forge/linux-64/sqlite-3.46.0-h6d4b2fc_0.conda#77ea8dff5cf8550cc8f5629a6af56323
+https://conda.anaconda.org/conda-forge/linux-64/xorg-libxext-1.3.4-h0b41bf4_2.conda#82b6df12252e6f32402b96dacc656fec
+https://conda.anaconda.org/conda-forge/linux-64/xorg-libxrender-0.9.10-h7f98852_1003.tar.bz2#f59c1242cc1dd93e72c2ee2b360979eb
+https://conda.anaconda.org/conda-forge/linux-64/fontconfig-2.14.2-h14ed4e7_0.conda#0f69b688f52ff6da70bccb7ff7001d1d
+https://conda.anaconda.org/conda-forge/linux-64/glib-tools-2.80.2-hb6ce0ca_0.conda#a965aeaf060289528a3fbe09326edae2
+https://conda.anaconda.org/conda-forge/linux-64/lcms2-2.12-hddcbb42_0.tar.bz2#797117394a4aa588de6d741b06fad80f
+https://conda.anaconda.org/conda-forge/linux-64/libcblas-3.11.0-11_h0358290_openblas.conda#73a248c30811075059b5aeda766c2624
+https://conda.anaconda.org/conda-forge/linux-64/liblapack-3.11.0-11_h47877c9_openblas.conda#5622a13917855ce4b953b9e655cf9262
+https://conda.anaconda.org/conda-forge/linux-64/openjpeg-2.5.0-h7d73246_0.tar.bz2#93c291532f899698f193e82f8bd7a009
+https://conda.anaconda.org/conda-forge/linux-64/python-3.6.15-hb7a2778_0_cpython.tar.bz2#2263dbd2d8116aa8dd974602faabb1a2
+https://conda.anaconda.org/conda-forge/linux-64/glib-2.80.2-hf974151_0.conda#d427988dc3dbd0a4c136f52db356cc6a
+https://conda.anaconda.org/conda-forge/noarch/olefile-0.46-pyh9f0ad1d_1.tar.bz2#0b2e68acc8c78c8cc392b90983481f58
+https://conda.anaconda.org/conda-forge/linux-64/python_abi-3.6-2_cp36m.tar.bz2#6f5b92d833a339da29ad8578c2a648ad
+https://conda.anaconda.org/conda-forge/noarch/pytz-2023.3.post1-pyhd8ed1ab_0.conda#c93346b446cd08c169d843ae5fc0da97
+https://conda.anaconda.org/conda-forge/noarch/six-1.16.0-pyh6c4a22f_0.tar.bz2#e5f25f8dbc060e9a8d912e432202afc2
+https://conda.anaconda.org/conda-forge/noarch/wheel-0.37.1-pyhd8ed1ab_0.tar.bz2#1ca02aaf78d9c70d9a81a3bed5752022
+https://conda.anaconda.org/conda-forge/linux-64/cairo-1.16.0-hcf35c78_1003.tar.bz2#6b996a9e9337b64a7477942b84d3afe5
+https://conda.anaconda.org/conda-forge/linux-64/numpy-1.19.5-py36hfc0c790_2.tar.bz2#68dd09a5147b9dfc38a75237b99dad8e
+https://conda.anaconda.org/conda-forge/linux-64/pillow-8.3.2-py36h676a545_0.tar.bz2#38f5006cc5d5743ba92859bbee17fef1
+https://conda.anaconda.org/conda-forge/noarch/python-dateutil-2.8.2-pyhd8ed1ab_0.tar.bz2#dd999d1cc9f79e67dbb855c8924c7984
+https://conda.anaconda.org/conda-forge/linux-64/setuptools-58.0.4-py36h5fab9bb_2.tar.bz2#d584b24af029d1fc78b6a0d2cc294d40
+https://conda.anaconda.org/conda-forge/linux-64/boost-1.72.0-py36h79e6602_1.tar.bz2#0e9261927b443188744f5a0c4eba027c
+https://conda.anaconda.org/conda-forge/linux-64/pandas-1.1.5-py36h284efc9_0.tar.bz2#e5e3d1a5401c1c932ada9d4f0b6c8448
+https://conda.anaconda.org/conda-forge/noarch/pip-21.3.1-pyhd8ed1ab_0.tar.bz2#e4fe2a9af78ff11f1aced7e62128c6a8
+https://conda.anaconda.org/conda-forge/linux-64/pycairo-1.20.1-py36h726f1de_0.tar.bz2#d704055aa885f73ca5a9dfdd938fab6a
+https://conda.anaconda.org/conda-forge/linux-64/rdkit-2019.09.3-py36he9dd633_1.tar.bz2#6fc41f66dc66ca64746b833b4f3086c6
+# END CONDA_EXPLICIT
+
+pip 管理的包（用于在 Conda 环境恢复后安装）：
+# BEGIN PIP_ONLY
+ase==3.22.1
+cached-property==1.5.2
+certifi==2025.4.26
+charset-normalizer==2.0.12
+cycler==0.11.0
+dataclasses==0.8
+decorator==4.4.2
+future==1.0.0
+googledrivedownloader==0.4
+h5py==3.1.0
+idna==3.10
+importlib-resources==5.4.0
+isodate==0.6.1
+jinja2==3.0.3
+joblib==1.1.1
+kiwisolver==1.3.1
+llvmlite==0.36.0
+markupsafe==2.0.1
+matplotlib==3.3.4
+networkx==2.5.1
+numba==0.53.1
+opencv-python==4.5.5.64
+protobuf==3.19.6
+pyparsing==3.1.4
+pytest-runner==5.3.2
+python-louvain==0.16
+pytorchtools==0.0.2
+rdflib==5.0.0
+requests==2.27.1
+scikit-learn==0.24.2
+scipy==1.5.4
+tensorboardx==2.2
+threadpoolctl==3.1.0
+torch==1.7.0+cu110
+torch-cluster==1.5.8
+torch-geometric==1.7.2
+torch-scatter==2.0.5
+torch-sparse==0.6.8
+torch-spline-conv==1.2.0
+tqdm==4.64.1
+typing-extensions==4.1.1
+urllib3==1.26.20
+zipp==3.6.0
+# END PIP_ONLY
+
+全部 Python 包 freeze（审计参考，包含 Conda 管理包）：
+# BEGIN PIP_FREEZE_ALL
+ase==3.22.1
+cached-property==1.5.2
+certifi==2025.4.26
+charset-normalizer==2.0.12
+cycler==0.11.0
+dataclasses==0.8
+decorator==4.4.2
+future==1.0.0
+googledrivedownloader @ file:///data/jyk/hyper-setup/wheels/googledrivedownloader-0.4-py2.py3-none-any.whl
+h5py==3.1.0
+idna==3.10
+importlib-resources==5.4.0
+isodate==0.6.1
+Jinja2==3.0.3
+joblib==1.1.1
+kiwisolver==1.3.1
+llvmlite @ https://mirrors.aliyun.com/pypi/packages/4d/5a/707cc7e072d71bc19869d093e5cf9b7be98cb42d2398489465474d007ce8/llvmlite-0.36.0-cp36-cp36m-manylinux2010_x86_64.whl
+MarkupSafe==2.0.1
+matplotlib==3.3.4
+networkx==2.5.1
+numba==0.53.1
+numpy @ file:///home/conda/feedstock_root/build_artifacts/numpy_1626681920064/work
+olefile @ file:///home/conda/feedstock_root/build_artifacts/olefile_1602866521163/work
+opencv-python==4.5.5.64
+pandas==1.1.5
+Pillow @ file:///home/conda/feedstock_root/build_artifacts/pillow_1630696616009/work
+pip==21.3.1
+protobuf==3.19.6
+pycairo==1.20.1
+pyparsing==3.1.4
+pytest-runner @ file:///data/jyk/hyper-setup/wheels/pytest_runner-5.3.2-py3-none-any.whl
+python-dateutil @ file:///home/conda/feedstock_root/build_artifacts/python-dateutil_1626286286081/work
+python-louvain==0.16
+pytorchtools @ https://files.pythonhosted.org/packages/07/7d/91fc993eed451ff2aff02e09a8e0246125b72cbc7068cb94242ca2c0e72f/pytorchtools-0.0.2-py2.py3-none-any.whl
+pytz @ file:///home/conda/feedstock_root/build_artifacts/pytz_1693930252784/work
+rdflib @ file:///data/jyk/hyper-setup/wheels/rdflib-5.0.0-py3-none-any.whl
+requests==2.27.1
+scikit-learn==0.24.2
+scipy==1.5.4
+setuptools==58.0.4
+six @ file:///home/conda/feedstock_root/build_artifacts/six_1620240208055/work
+tensorboardX==2.2
+threadpoolctl==3.1.0
+torch==1.7.0+cu110
+torch-cluster==1.5.8
+torch-geometric==1.7.2
+torch-scatter==2.0.5
+torch-sparse==0.6.8
+torch-spline-conv==1.2.0
+tqdm==4.64.1
+typing_extensions==4.1.1
+urllib3==1.26.20
+wheel==0.37.1
+zipp==3.6.0
+# END PIP_FREEZE_ALL
+
+
+十、环境自定义文件（Conda 显式包列表不会携带这些本地新增内容）
+
+# BEGIN CUDA_ACTIVATE
+# Resolve CUDA 11 runtime dependencies of the original PyG wheels.
+export HYPER_PREVIOUS_LD_LIBRARY_PATH_SET="${LD_LIBRARY_PATH+x}"
+export HYPER_PREVIOUS_LD_LIBRARY_PATH="${LD_LIBRARY_PATH-}"
+export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+# END CUDA_ACTIVATE
+
+# BEGIN CUDA_DEACTIVATE
+if [ "${HYPER_PREVIOUS_LD_LIBRARY_PATH_SET-}" = x ]; then
+    export LD_LIBRARY_PATH="${HYPER_PREVIOUS_LD_LIBRARY_PATH-}"
+else
+    unset LD_LIBRARY_PATH
+fi
+unset HYPER_PREVIOUS_LD_LIBRARY_PATH HYPER_PREVIOUS_LD_LIBRARY_PATH_SET
+# END CUDA_DEACTIVATE
+
+# BEGIN CONDA_PINNED
+python 3.6.*
+rdkit 2019.09.3
+boost-cpp 1.72.0 h8e57a91_0
+cudatoolkit 11.0.*
+numpy 1.19.5
+pandas 1.1.5
+# END CONDA_PINNED
+
+十一、本地 wheel 缓存清单（文件名 / 字节数 / SHA256）
+googledrivedownloader-0.4-py2.py3-none-any.whl | 3904 | 26ef906c4a038de6fb36f375b0cb0af6f0b6d7ea9ce019a3a08abc50fd6a3b73
+pytest_runner-5.3.2-py3-none-any.whl | 7241 | c7d785ea6c612396c11ddbaf467764d2cc746ef96a713fbe1a296c221503b7c3
+rdflib-5.0.0-py3-none-any.whl | 231054 | 88208ea971a87886d60ae2b1a4b2cdc263527af0454c422118d43fe64b357877
+torch_cluster-1.5.8-cp36-cp36m-linux_x86_64.whl | 21507878 | fff832a432e1a71428f0c65b8a7401c2906902ebaadf6ec447a8467c069b7bcd
+torch_scatter-2.0.5-cp36-cp36m-linux_x86_64.whl | 12031973 | cd744aa378a34512ca28d76703def5a281613832b91a3bc96d79ac6d0362b64b
+torch_sparse-0.6.8-cp36-cp36m-linux_x86_64.whl | 24285875 | 4a18370f3f0977f1fcb7229f066b9666b2cff27a3e447d64c32a81b7297e898b
+torch_spline_conv-1.2.0-cp36-cp36m-linux_x86_64.whl | 6387111 | cff81ea58bc48347c7d19bfab3d2c800d7d4c3ef84b6cab9f1ae3885b1c2d09c
+
+十二、安装来源元数据（审计用途；Conda 构建目录不是迁移目标路径）
+[
+  {
+    "package": "pytz-2023.3.post1.dist-info",
+    "direct_url": {
+      "dir_info": {},
+      "url": "file:///home/conda/feedstock_root/build_artifacts/pytz_1693930252784/work"
+    }
+  },
+  {
+    "package": "six-1.16.0.dist-info",
+    "direct_url": {
+      "dir_info": {},
+      "url": "file:///home/conda/feedstock_root/build_artifacts/six_1620240208055/work"
+    }
+  },
+  {
+    "package": "googledrivedownloader-0.4.dist-info",
+    "direct_url": {
+      "archive_info": {},
+      "url": "file:///data/jyk/hyper-setup/wheels/googledrivedownloader-0.4-py2.py3-none-any.whl"
+    }
+  },
+  {
+    "package": "Pillow-8.3.2.dist-info",
+    "direct_url": {
+      "dir_info": {},
+      "url": "file:///home/conda/feedstock_root/build_artifacts/pillow_1630696616009/work"
+    }
+  },
+  {
+    "package": "python_dateutil-2.8.2.dist-info",
+    "direct_url": {
+      "dir_info": {},
+      "url": "file:///home/conda/feedstock_root/build_artifacts/python-dateutil_1626286286081/work"
+    }
+  },
+  {
+    "package": "pytorchtools-0.0.2.dist-info",
+    "direct_url": {
+      "archive_info": {},
+      "url": "https://files.pythonhosted.org/packages/07/7d/91fc993eed451ff2aff02e09a8e0246125b72cbc7068cb94242ca2c0e72f/pytorchtools-0.0.2-py2.py3-none-any.whl"
+    }
+  },
+  {
+    "package": "llvmlite-0.36.0.dist-info",
+    "direct_url": {
+      "archive_info": {},
+      "url": "https://mirrors.aliyun.com/pypi/packages/4d/5a/707cc7e072d71bc19869d093e5cf9b7be98cb42d2398489465474d007ce8/llvmlite-0.36.0-cp36-cp36m-manylinux2010_x86_64.whl"
+    }
+  },
+  {
+    "package": "olefile-0.46.dist-info",
+    "direct_url": {
+      "dir_info": {},
+      "url": "file:///home/conda/feedstock_root/build_artifacts/olefile_1602866521163/work"
+    }
+  },
+  {
+    "package": "numpy-1.19.5.dist-info",
+    "direct_url": {
+      "dir_info": {},
+      "url": "file:///home/conda/feedstock_root/build_artifacts/numpy_1626681920064/work"
+    }
+  },
+  {
+    "package": "rdflib-5.0.0.dist-info",
+    "direct_url": {
+      "archive_info": {},
+      "url": "file:///data/jyk/hyper-setup/wheels/rdflib-5.0.0-py3-none-any.whl"
+    }
+  },
+  {
+    "package": "pytest_runner-5.3.2.dist-info",
+    "direct_url": {
+      "archive_info": {},
+      "url": "file:///data/jyk/hyper-setup/wheels/pytest_runner-5.3.2-py3-none-any.whl"
+    }
+  }
+]
+
+十三、主要证据文件（源机器）
+/data/jyk/HyperSynergyV3/experiments/innovation_1_biograph/run_stage.py
+/data/jyk/HyperSynergyV3/experiments/innovation_1_biograph/runs/formal_biograph_stage2_restart_20261105_145123/RUN_RECORD.json
+/data/jyk/HyperSynergyV3/experiments/innovation_1_biograph/integration_validation_20261102_180408/results/environment.json
+/data/jyk/miniconda3/envs/hyper/conda-meta/
+/data/jyk/miniconda3/envs/hyper/etc/conda/activate.d/hyper-cuda.sh
+/data/jyk/hyper-setup/verification-gpu.log（历史 GPU 记录）
+说明结束。

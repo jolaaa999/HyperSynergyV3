@@ -17,14 +17,17 @@ torch.set_num_threads(int(2))
 warnings.filterwarnings('ignore')
 from model_few import *
 import data_syn
+# [Innovation-1: Biological Graph Cell Encoder]
+from innovation_checkpoint import load_extractor, load_meta_model
 
 
 def test(total_test_batches, data_test, model, device,best_step,best_MSE,saved_model,sup):
     # load state dict
 
     _load_model =saved_model +str(best_step)+'k_'+str(best_MSE)+'_model_'+str(best_step)+'.pth'
-    state_dict = torch.load(_load_model)['state_dict']
-    model.load_state_dict(state_dict)
+    # [Innovation-1: Biological Graph Cell Encoder]
+    _load_model = os.environ.get('HYPERSYNERGY_TEST_CHECKPOINT', _load_model)
+    load_meta_model(model, torch.load(_load_model))
     model.eval()
     total_c_spearman = 0
     total_c_loss = 0
@@ -107,6 +110,9 @@ def test(total_test_batches, data_test, model, device,best_step,best_MSE,saved_m
     print('=' * 50)
 
 if __name__ == '__main__':
+    # [Innovation-1: Biological Graph Cell Encoder]
+    from innovation_checkpoint import guard_experiment_directory
+    guard_experiment_directory()
 
 
     cuda_name = 'cuda:0'
@@ -116,7 +122,7 @@ if __name__ == '__main__':
     samples_support = 5 #10,30
     samples_query = 40
     total_test_batches = 200
-    saved_model_path='saved_model/saved_model_few_shot_setting/'
+    saved_model_path='saved_model/saved_model_few_shot_setting_change_encoders/'
 
     result_path = 'results/result_few_shot/'
 
@@ -127,6 +133,14 @@ if __name__ == '__main__':
 
     embed = 128
     best_MSE, best_step= format(0.0648, '.4f'), 21600  #or your trained model
+    # [Innovation-1: Biological Graph Cell Encoder]
+    if os.environ.get('HYPERSYNERGY_TEST_CHECKPOINT'):
+        import re
+        _match = re.fullmatch(r'(\d+)k_([0-9.]+)_model_(\d+)[.]pth',
+                             os.path.basename(os.environ['HYPERSYNERGY_TEST_CHECKPOINT']))
+        if _match is None or _match.group(1) != _match.group(3):
+            raise ValueError('Invalid Stage 2 checkpoint filename')
+        best_step, best_MSE = int(_match.group(1)), _match.group(2)
     method = 'test_few_shot_cell lines, 50-5,dim=128, inner learning rate=0.1'
 
     experiment_nameTEs = f'cell_few_shot_test_{embed}embed_{lr}LR_{1}shot'
@@ -145,17 +159,21 @@ if __name__ == '__main__':
     mini = data_syn.MiniCellDataSet(batch_size=batch_size, samples_support=samples_support, samples_query=samples_query)
     HyperSynergy_model = HyperSynergy(num_support = samples_support, num_query=samples_query).to(device)
 
-    model_path = './pretrain_representation_model/pretrain_representation_few_zero_setting.model'
+    model_path = './pretrain_representation_model/pretrain_representation_few_zero_setting_change_encoders.model'
 
+    # pretrained_dict = torch.load(model_path, map_location=device)
+    # # read MMN's params
+    # model_dict = HyperSynergy_model.extractor.state_dict()
+    # # read same params in two model
+    # state_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict.keys()}
+    # # updata ,
+    # model_dict.update(state_dict)
+    # # load part of model params
+    # HyperSynergy_model.extractor.load_state_dict(model_dict)
+    #----------整体替换了----------
     pretrained_dict = torch.load(model_path, map_location=device)
-    # read MMN's params
-    model_dict = HyperSynergy_model.extractor.state_dict()
-    # read same params in two model
-    state_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict.keys()}
-    # updata ,
-    model_dict.update(state_dict)
-    # load part of model params
-    HyperSynergy_model.extractor.load_state_dict(model_dict)
+    # [Innovation-1: Biological Graph Cell Encoder]
+    load_extractor(HyperSynergy_model.extractor, pretrained_dict)
     # freeze
     for p in HyperSynergy_model.extractor.parameters():
         # print(p)

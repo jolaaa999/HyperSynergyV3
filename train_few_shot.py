@@ -12,6 +12,8 @@ import pickle
 
 from model_few import *
 import data_syn
+# [Innovation-1: Biological Graph Cell Encoder]
+from innovation_checkpoint import load_extractor, add_meta_metadata
 
 torch.set_num_threads(int(2))
 warnings.filterwarnings('ignore')
@@ -150,9 +152,11 @@ def train(train_batches, data_train, model, optimizer, optimizer_lr, lr_schedule
                 model_name = '%dk_%4.4f_model' % (step, sum(val_losses) / len(val_losses))
                 # defined model name
                 state = {'step': step, 'state_dict': model.state_dict()}
-                if not os.path.exists('saved_model/saved_model_few_shot_setting/'):
-                    os.makedirs('saved_model/saved_model_few_shot_setting/', exist_ok=False)
-                save_path = "saved_model/saved_model_few_shot_setting/{}_{}.pth".format(model_name, step)
+                # [Innovation-1: Biological Graph Cell Encoder]
+                add_meta_metadata(state, model.extractor)
+                if not os.path.exists('saved_model/saved_model_few_shot_setting_change_encoders/'):
+                    os.makedirs('saved_model/saved_model_few_shot_setting_change_encoders/', exist_ok=False)
+                save_path = "saved_model/saved_model_few_shot_setting_change_encoders/{}_{}.pth".format(model_name, step)
                 torch.save(state, save_path)
 
             model.train()
@@ -168,6 +172,9 @@ def train(train_batches, data_train, model, optimizer, optimizer_lr, lr_schedule
                                                 total_c_pearson, total_c_r2])
 
 if __name__ == '__main__':
+    # [Innovation-1: Biological Graph Cell Encoder]
+    from innovation_checkpoint import guard_experiment_directory
+    guard_experiment_directory()
 
     # writer = SummaryWriter('./Result_ful_syn_rest')
 
@@ -210,17 +217,21 @@ if __name__ == '__main__':
     mini = data_syn.MiniCellDataSet(batch_size=batch_size, samples_support=samples_support, samples_query=samples_query)
     HyperSynergy_model = HyperSynergy(num_support = samples_support, num_query=samples_query).to(device)
 
-    model_path = './pretrain_representation_model/pretrain_representation_few_zero_setting.model'
+    model_path = './pretrain_representation_model/pretrain_representation_few_zero_setting_change_encoders.model'
 
+    # pretrained_dict = torch.load(model_path, map_location=device)
+    # # read MMN's params
+    # model_dict = HyperSynergy_model.extractor.state_dict()
+    # # read same params in two model
+    # state_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict.keys()}
+    # # updata ,
+    # model_dict.update(state_dict)
+    # # load part of model params
+    # HyperSynergy_model.extractor.load_state_dict(model_dict)
+    #   ----------整体替换了----------
     pretrained_dict = torch.load(model_path, map_location=device)
-    # read MMN's params
-    model_dict = HyperSynergy_model.extractor.state_dict()
-    # read same params in two model
-    state_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict.keys()}
-    # updata ,
-    model_dict.update(state_dict)
-    # load part of model params
-    HyperSynergy_model.extractor.load_state_dict(model_dict)
+    # [Innovation-1: Biological Graph Cell Encoder]
+    load_extractor(HyperSynergy_model.extractor, pretrained_dict)
     # freeze
     for p in HyperSynergy_model.extractor.parameters():
 

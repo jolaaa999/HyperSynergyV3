@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Preserve byte hashes used by BioGraph and historical source fixtures.
+data/biological_graph/ppi_edges.csv -text whitespace=cr-at-eol
+experiments/innovation_1_biograph/configs/gene_index.csv -text whitespace=cr-at-eol
+experiments/innovation_1_biograph/originals/** -text -whitespace

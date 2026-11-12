@@ -6,6 +6,9 @@ from torch.optim import lr_scheduler
 import torch.nn as nn
 from utils_syn import *
 import data_syn
+from pretrain_checkpoint import atomic_save, save_training_checkpoint, load_training_checkpoint
+# [Innovation-1: Biological Graph Cell Encoder]
+from innovation_checkpoint import extractor_payload, add_resume_metadata
 
 # training function at each epoch
 def train( model,device,train_loader,train_loader1,optimizer,lr_scheduler):
@@ -19,7 +22,7 @@ def train( model,device,train_loader,train_loader1,optimizer,lr_scheduler):
                 data1 = data1.to(device)
                 optimizer.zero_grad()
 
-                output = model(data, data1,regress=True)
+                output = model(data, data1)
                 loss = loss_fn(output, data['y'].view(-1, 1).float().to(device))
                 loss.backward()
                 optimizer.step()
@@ -45,6 +48,9 @@ def predicting(model,device,loader,loader0,total_labels_p,total_preds_p):
     return total_labels_p, total_preds_p
 
 if __name__ == '__main__':
+    # [Innovation-1: Biological Graph Cell Encoder]
+    from innovation_checkpoint import guard_experiment_directory
+    guard_experiment_directory()
     cuda_name = "cuda:0"
     print('cuda_name:', cuda_name)
     TRAIN_BATCH_SIZE= 500
@@ -61,8 +67,9 @@ if __name__ == '__main__':
     cell_features = pickle.load(open(fpath + 'cell_feature_900.p', 'rb'))
 
     device=torch.device(cuda_name if torch.cuda.is_available() else "cpu")
-    EMB=EMBNet(n_output=1,num_features_xd=78,  output_dimd=128, output_dimc=256,dropoutc=0.2,dropoutf=0.3).to(device)
-
+    #   EMB=EMBNet(n_output=1,num_features_xd=78,  output_dimd=128, output_dimc=256,dropoutc=0.2,dropoutf=0.3).to(device)
+    #   改了网络（新增编码器）
+    EMB=EMBNet(n_output=1,dropout=0.3).to(device)
     print('-------------------------------you are you, i am me---------------------------')
     sum_=0
     for name,param in EMB.named_parameters():
@@ -78,7 +85,8 @@ if __name__ == '__main__':
     scheduler=lr_scheduler.StepLR(optimizer,step_size=50000,gamma=1.0)
 
     # few_shot setting or zero_shot setting
-    model_file_name = 'pretrain_representation_few_zero_setting' + '.model'
+    # change encoders   改了名字
+    model_file_name = 'pretrain_representation_few_zero_setting_change_encoders' + '.model'
 
     #save_representation_model file
     model_path = 'pretrain_representation_model/'
@@ -87,6 +95,21 @@ if __name__ == '__main__':
     tranditional_train = data_syn.tranditional_model_data(train_rate=0.9, val_rate=0.1,data_path= data_path,seed=seed)
     df_train, df_val, _ = tranditional_train.get_train_batch(augment=False)
     train_sample=df_train
+    # Persistence only: keep the original data, model and training settings.
+    resume_path = os.path.join(model_path,
+        'pretrain_representation_few_zero_setting_change_encoders.training.pt')
+    resume_config = dict(train_batch_size=TRAIN_BATCH_SIZE, val_batch_size=VAL_BATCH_SIZE,
+        lr=LR, num_epochs=NUM_EPOCHS, seed=seed, data_path=data_path,
+        train_rate=0.9, val_rate=0.1, scheduler_step_size=50000, scheduler_gamma=1.0)
+    # [Innovation-1: Biological Graph Cell Encoder]
+    add_resume_metadata(resume_config, EMB.extractor)
+    completed_epoch = 0
+    if os.path.isfile(resume_path):
+        completed_epoch, train_sample, df_val = load_training_checkpoint(
+            resume_path, EMB, optimizer, scheduler, resume_config)
+    else:
+        save_training_checkpoint(resume_path, EMB, optimizer, scheduler,
+            completed_epoch, train_sample, df_val, resume_config)
     print("train_sample_shape:", train_sample.shape)
     print("val_sample_shape:", df_val.shape)
 
@@ -94,7 +117,7 @@ if __name__ == '__main__':
     val_len = int(len(df_val) / VAL_BATCH_SIZE)
 
     print('Training on {} samples...'.format(len(train_sample)))
-    for epoch in range(1, NUM_EPOCHS + 1):
+    for epoch in range(completed_epoch + 1, NUM_EPOCHS + 1):
         index = [i for i in range(len(train_sample))]
         random.shuffle(index)
         train_sample = train_sample[index]
@@ -128,5 +151,9 @@ if __name__ == '__main__':
             G, P = total_labels.numpy().flatten(), total_preds.numpy().flatten()
             ret = [rmse(G, P), mse(G, P), pearson(G, P), spearman(G, P), r2_score(G, P)]
             print("ret_val=", ret)
+        save_training_checkpoint(resume_path, EMB, optimizer, scheduler,
+            epoch, train_sample, df_val, resume_config)
     #save model
-    torch.save(EMB.state_dict(), model_path + model_file_name)
+    #torch.save(EMB.state_dict(), model_path + model_file_name)
+    # [Innovation-1: Biological Graph Cell Encoder]
+    atomic_save(extractor_payload(EMB.extractor), model_path + model_file_name)
